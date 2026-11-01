@@ -1,0 +1,10 @@
+node_modules/
+dist/
+.DS_Store
+Thumbs.db
+*.log
+coverage/
+android/app/build/
+ios/App/build/
+report.json
+incident_report_*.json

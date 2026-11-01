@@ -1,0 +1,32 @@
+{
+  "name": "examradar-rf",
+  "version": "1.0.0",
+  "description": "Mobile Anti-Cheating RF, BLE & Wi-Fi Proximity Radar for Classroom Exam Surveillance",
+  "type": "module",
+  "main": "./src/index.js",
+  "scripts": {
+    "test": "node --test test/**/*.test.js",
+    "start": "node ./src/server.js"
+  },
+  "keywords": [
+    "exam-security",
+    "rf-detector",
+    "ble-scanner",
+    "wifi-sniffer",
+    "anti-cheating",
+    "academic-integrity",
+    "proximity-radar",
+    "android",
+    "ios",
+    "capacitor"
+  ],
+  "author": "Nicolás Riquelme Lozano <nicolas.riquelme@tajamar365.com>",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/nrcb28/examradar-rf.git"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
