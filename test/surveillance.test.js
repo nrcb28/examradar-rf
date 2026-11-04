@@ -45,7 +45,7 @@ test('surveillance: triggers immediate anomaly alert when a new suspicious devic
   assert.equal(alerts[0].deviceName, 'Nano-Ear Pro');
 });
 
-test('incident-logger: produces valid SHA-256 evidence chain of custody and HTML certificate', () => {
+test('incident-logger: produces SHA-256 report checksum and HTML certificate', async () => {
   const session = new ExamSession({ examName: 'Matemáticas', classroom: 'Aula Magna' });
   session.startExam();
 
@@ -55,7 +55,7 @@ test('incident-logger: produces valid SHA-256 evidence chain of custody and HTML
     rssi: -49,
   });
 
-  const audit = generateIncidentAuditReport(session);
+  const audit = await generateIncidentAuditReport(session);
 
   assert.ok(audit.reportId.startsWith('AUDIT-'));
   assert.equal(audit.sessionMetadata.examName, 'Matemáticas');
@@ -64,6 +64,6 @@ test('incident-logger: produces valid SHA-256 evidence chain of custody and HTML
   assert.equal(audit.evidenceIntegrity.hash.length, 64); // Valid sha256 hex length
 
   const html = generateHtmlIncidentCertificate(audit);
-  assert.ok(html.includes('INFORME DE EVIDENCIA PERICIAL DE RADIOFRECUENCIA'));
+  assert.ok(html.includes('INFORME DE OBSERVACIONES DE RADIOFRECUENCIA'));
   assert.ok(html.includes(audit.evidenceIntegrity.hash));
 });

@@ -2,7 +2,7 @@
 <html lang="es">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>ExamRadar-RF • Detector de Radiofrecuencia para Exámenes</title>
   <style>
     :root {
@@ -93,18 +93,19 @@
 <body>
   <div class="header">
     <div class="brand">📡 ExamRadar-RF</div>
-    <div id="status-badge" class="status-badge">ACTIVO • VIGILANDO</div>
+    <div id="status-badge" class="status-badge">SIMULACIÓN</div>
   </div>
 
   <div class="container">
+    <p role="note" style="color:var(--muted); margin-bottom:1rem;">Demostración con dispositivos ficticios. No realiza un escaneo real. Las firmas y distancias son orientativas y no acreditan una infracción. Los ángulos del radar son ilustrativos.</p>
     <!-- Geiger HUD -->
     <div class="geiger-hud">
       <div class="geiger-sub">NIVEL DE SEÑAL / PROXIMIDAD MÁS CERCANA</div>
       <div id="geiger-rssi" class="geiger-val">-65 dBm</div>
       <div id="geiger-distance" style="font-size: 1.1rem; color: #fff; margin-top: 0.2rem;">Distancia: ~1.4 m (Pupitre Fila 2)</div>
       <div style="margin-top: 0.8rem; display: flex; justify-content: center; gap: 0.5rem;">
-        <button id="btn-audio" class="btn btn-outline" style="width: auto; padding: 0.4rem 0.8rem; font-size: 0.8rem;" onclick="toggleAudio()">🔊 Clics Geiger: OFF</button>
-        <button id="btn-haptic" class="btn btn-outline" style="width: auto; padding: 0.4rem 0.8rem; font-size: 0.8rem;" onclick="toggleHaptic()">📳 Vibración: ON</button>
+        <button id="btn-audio" class="btn btn-outline" style="width: auto; padding: 0.4rem 0.8rem; font-size: 0.8rem;" >🔊 Clics Geiger: OFF</button>
+        <button id="btn-haptic" class="btn btn-outline" style="width: auto; padding: 0.4rem 0.8rem; font-size: 0.8rem;" >📳 Vibración: ON</button>
       </div>
     </div>
 
@@ -121,20 +122,20 @@
       </div>
       <div class="walk-controls">
         <div></div>
-        <button class="btn-walk" onclick="moveTeacher(0, 1)">▲ N</button>
+        <button class="btn-walk" data-dx="0" data-dy="1">▲ N</button>
         <div></div>
-        <button class="btn-walk" onclick="moveTeacher(-1, 0)">◄ O</button>
-        <button class="btn-walk" onclick="moveTeacher(0, 0)">●</button>
-        <button class="btn-walk" onclick="moveTeacher(1, 0)">E ►</button>
+        <button class="btn-walk" data-dx="-1" data-dy="0">◄ O</button>
+        <button class="btn-walk" data-dx="0" data-dy="0">●</button>
+        <button class="btn-walk" data-dx="1" data-dy="0">E ►</button>
         <div></div>
-        <button class="btn-walk" onclick="moveTeacher(0, -1)">▼ S</button>
+        <button class="btn-walk" data-dx="0" data-dy="-1">▼ S</button>
         <div></div>
       </div>
     </div>
 
     <!-- Active Threats Feed -->
     <h3 style="font-size: 1.1rem; margin-bottom: 0.8rem;">Dispositivos Transmisores Sospechosos</h3>
-    <div id="threats-list">
+    <div id="threats-list" aria-live="polite">
       <div class="threat-card">
         <div class="threat-title">
           <span>VIP-Pro Nano-Ear</span>
@@ -145,91 +146,12 @@
     </div>
 
     <!-- Audit Certificate Export -->
-    <button class="btn btn-outline" onclick="exportAuditReport()">📄 Generar Acta Pericial Criptográfica</button>
+    <button id="btn-export-html" class="btn btn-outline">📄 Descargar informe HTML</button>
+    <button id="btn-export-json" class="btn btn-outline">Descargar JSON verificable</button>
+    <button id="btn-refresh-report" class="btn btn-outline">Actualizar captura del informe</button>
+    <p id="export-status" role="status" style="color:var(--muted); margin-top:0.5rem;"></p>
   </div>
 
-  <script type="module">
-    import { MockClassroom } from './src/core/hardware/mock-classroom.js';
-    import { ExamSession } from './src/core/surveillance/exam-session.js';
-    import { GeigerEngine } from './src/core/audio/geiger-synthesizer.js';
-    import { RadarRenderer } from './src/ui/radar-canvas.js';
-    import { generateIncidentAuditReport, generateHtmlIncidentCertificate } from './src/core/surveillance/incident-logger.js';
-
-    const canvas = document.getElementById('radar');
-    const renderer = new RadarRenderer(canvas);
-    renderer.start();
-
-    const classroom = new MockClassroom();
-    const session = new ExamSession({ examName: 'Examen de Matemáticas Avanzadas', classroom: 'Aula 204' });
-    session.startExam();
-
-    const geiger = new GeigerEngine({ audioEnabled: false, hapticEnabled: true });
-
-    let posX = 2.0;
-    let posY = 3.0;
-    classroom.setTeacherPosition(posX, posY);
-
-    // Audio & Haptic toggles
-    window.toggleAudio = () => {
-      geiger.initAudio();
-      geiger.audioEnabled = !geiger.audioEnabled;
-      document.getElementById('btn-audio').innerText = geiger.audioEnabled ? '🔊 Clics Geiger: ON' : '🔊 Clics Geiger: OFF';
-    };
-
-    window.toggleHaptic = () => {
-      geiger.hapticEnabled = !geiger.hapticEnabled;
-      document.getElementById('btn-haptic').innerText = geiger.hapticEnabled ? '📳 Vibración: ON' : '📳 Vibración: OFF';
-    };
-
-    // Movement control
-    window.moveTeacher = (dx, dy) => {
-      posX = Math.max(0, Math.min(8, posX + dx * 0.8));
-      posY = Math.max(0, Math.min(10, posY + dy * 0.8));
-      document.getElementById('pos-x').innerText = posX.toFixed(1);
-      document.getElementById('pos-y').innerText = posY.toFixed(1);
-      classroom.setTeacherPosition(posX, posY);
-    };
-
-    // Main scan tick
-    setInterval(() => {
-      const frame = classroom.generateScanFrame();
-      for (const item of frame) {
-        session.ingestDevice(item);
-      }
-
-      const threats = session.getActiveThreats();
-      renderer.setDevices(threats);
-
-      // Render threats feed
-      const list = document.getElementById('threats-list');
-      if (threats.length === 0) {
-        list.innerHTML = '<div style="color:var(--muted); font-size:0.9rem;">No hay transmisiones sospechosas en este cuadrante.</div>';
-      } else {
-        list.innerHTML = threats.map(t => `
-          <div class="threat-card" style="border-left-color: ${t.classification.category.score >= 90 ? 'var(--crit)' : 'var(--warn)'}">
-            <div class="threat-title">
-              <span>${t.name}</span>
-              <span class="threat-dist" style="color: ${t.classification.category.score >= 90 ? 'var(--crit)' : 'var(--warn)'}">${t.distanceMeters.toFixed(2)} m</span>
-            </div>
-            <div class="threat-detail">${t.classification.reason} • RSSI: ${t.rssiFiltered} dBm</div>
-          </div>
-        `).join('');
-
-        // Update Geiger HUD with nearest threat
-        const nearest = threats[0];
-        document.getElementById('geiger-rssi').innerText = nearest.rssiFiltered + ' dBm';
-        document.getElementById('geiger-distance').innerText = `Distancia estimada: ~${nearest.distanceMeters.toFixed(2)} m (${nearest.proximityZone ? nearest.proximityZone.label : ''})`;
-        geiger.updateDistance(nearest.distanceMeters);
-      }
-    }, 600);
-
-    window.exportAuditReport = () => {
-      const report = generateIncidentAuditReport(session);
-      const html = generateHtmlIncidentCertificate(report);
-      const win = window.open('', '_blank');
-      win.document.write(html);
-      win.document.close();
-    };
-  </script>
+  <script type="module" src="/app.js"></script>
 </body>
 </html>

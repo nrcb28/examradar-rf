@@ -10,6 +10,7 @@ export class GeigerEngine {
     this.audioContext = null;
     this.intervalId = null;
     this.currentFrequencyHz = 0; // clicks per second
+    this.currentDistanceMeters = null;
   }
 
   /**
@@ -31,10 +32,12 @@ export class GeigerEngine {
    * Initializes Web Audio Context on user gesture.
    */
   initAudio() {
+    if (this.audioContext && this.audioContext.state !== 'closed') return this.audioContext;
     if (typeof window !== 'undefined' && (window.AudioContext || window.webkitAudioContext)) {
       const AudioCtx = window.AudioContext || window.webkitAudioContext;
       this.audioContext = new AudioCtx();
     }
+    return this.audioContext;
   }
 
   /**
@@ -82,9 +85,12 @@ export class GeigerEngine {
    */
   updateDistance(distance) {
     const freq = GeigerEngine.calculateClickFrequency(distance);
+    this.currentDistanceMeters = Number.isFinite(distance) && distance > 0 ? distance : null;
+    // Preserve the next scheduled click when consecutive scans keep the same cadence.
+    if (freq === this.currentFrequencyHz && this.intervalId !== null) return;
     this.currentFrequencyHz = freq;
 
-    if (this.intervalId) {
+    if (this.intervalId !== null) {
       clearInterval(this.intervalId);
       this.intervalId = null;
     }
@@ -94,17 +100,18 @@ export class GeigerEngine {
     const intervalMs = Math.round(1000 / freq);
     this.intervalId = setInterval(() => {
       this.playClick();
-      if (distance < 1.0) {
+      if (this.currentDistanceMeters !== null && this.currentDistanceMeters < 1.0) {
         this.triggerHaptic(15);
       }
     }, intervalMs);
   }
 
   stop() {
-    if (this.intervalId) {
+    if (this.intervalId !== null) {
       clearInterval(this.intervalId);
       this.intervalId = null;
     }
     this.currentFrequencyHz = 0;
+    this.currentDistanceMeters = null;
   }
 }

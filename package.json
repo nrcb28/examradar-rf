@@ -5,7 +5,7 @@
   "type": "module",
   "main": "./src/index.js",
   "scripts": {
-    "test": "node --test test/**/*.test.js",
+    "test": "node --test",
     "start": "node ./src/server.js"
   },
   "keywords": [
@@ -27,6 +27,6 @@
     "url": "https://github.com/nrcb28/examradar-rf.git"
   },
   "engines": {
-    "node": ">=18.0.0"
+    "node": ">=22.0.0"
   }
 }
