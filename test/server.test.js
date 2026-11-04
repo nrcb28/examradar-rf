@@ -23,7 +23,8 @@ function request(server, target, { method = 'GET', host = 'localhost' } = {}) {
 
 test('server: restricts files, traversal, symlinks, methods and host headers; survives malformed requests', async t => {
   const directory = await mkdtemp(path.join(tmpdir(), 'examradar-test-'));
-  const server = createStaticServer({ directory });
+  // A trusted configured root may itself have a symlink/junction ancestor.
+  const server = createStaticServer({ directory: path.join(directory, 'mount') });
   t.after(async () => {
     server.closeAllConnections();
     await new Promise(resolve => server.close(resolve));
@@ -43,6 +44,7 @@ test('server: restricts files, traversal, symlinks, methods and host headers; su
   await writeFile(path.join(directory, 'public/.env'), 'SECRET_ENV');
   await writeFile(path.join(directory, 'private/secret.js'), 'SECRET_LINK');
   await symlink(path.join(directory, 'private'), path.join(directory, 'public/escape'), 'junction');
+  await symlink(directory, path.join(directory, 'mount'), 'junction');
   server.listen(0, '127.0.0.1');
   await once(server, 'listening');
 

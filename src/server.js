@@ -68,8 +68,9 @@ export function createStaticServer({ directory = rootDir, host = '127.0.0.1' } =
       }
       const contentType = MIME_TYPES[path.extname(relative)];
       if (!contentType) return reply(404, '404 Not Found');
-      const candidate = path.resolve(base, relative);
       const canonicalBase = await realpath(base);
+      // Resolve trusted root aliases first (e.g. macOS /var -> /private/var).
+      const candidate = path.resolve(canonicalBase, relative);
       const canonicalFile = await realpath(candidate);
       const contained = path.relative(canonicalBase, canonicalFile);
       if (!contained || contained.startsWith(`..${path.sep}`) || contained === '..' || path.isAbsolute(contained)) {
