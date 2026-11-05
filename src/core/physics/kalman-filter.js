@@ -1,6 +1,6 @@
 /**
  * 1D Kalman Filter for smoothing raw, noisy RSSI radiofrequency measurements.
- * Stabilizes multipath fading and body attenuation noise without lag.
+ * Smooths multipath fading and body attenuation noise, with the usual filtering lag.
  */
 export class RssiKalmanFilter {
   /**
@@ -8,6 +8,10 @@ export class RssiKalmanFilter {
    * @param {number} measurementNoise R - Measurement noise covariance (defaults to 4.0 dBm^2)
    */
   constructor(processNoise = 0.08, measurementNoise = 4.0) {
+    if (!Number.isFinite(processNoise) || processNoise < 0 ||
+        !Number.isFinite(measurementNoise) || measurementNoise <= 0) {
+      throw new RangeError('Kalman noise must be finite with processNoise >= 0 and measurementNoise > 0');
+    }
     this.Q = processNoise;
     this.R = measurementNoise;
     this.x = null; // Estimated value (filtered RSSI)
@@ -21,22 +25,26 @@ export class RssiKalmanFilter {
    * @returns {number} Filtered RSSI in dBm
    */
   filter(rawRssi) {
+    if (!Number.isFinite(rawRssi) || rawRssi < -127 || rawRssi >= 0) {
+      throw new RangeError('RSSI must be a finite number in [-127, 0) dBm');
+    }
     if (this.x === null) {
       this.x = rawRssi;
       return this.x;
     }
 
-    // 1. Prediction step
-    const pPredict = this.p + this.Q;
-
-    // 2. Kalman Gain calculation
-    this.k = pPredict / (pPredict + this.R);
+    // Scale the covariance terms before addition to avoid Infinity/Infinity for
+    // large but finite noise settings. The result is the same Kalman gain.
+    const scale = Math.max(this.p, this.Q, this.R);
+    const predictedScaled = this.p / scale + this.Q / scale;
+    this.k = predictedScaled / (predictedScaled + this.R / scale);
 
     // 3. Measurement update
     this.x = this.x + this.k * (rawRssi - this.x);
-    this.p = (1 - this.k) * pPredict;
+    this.p = this.R * this.k;
 
-    return Math.round(this.x * 10) / 10;
+    const rounded = Math.round(this.x * 10) / 10;
+    return rounded === 0 ? this.x : rounded;
   }
 
   reset() {

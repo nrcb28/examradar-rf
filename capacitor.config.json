@@ -1,7 +1,7 @@
 {
   "appId": "com.nrcb28.examradar",
   "appName": "ExamRadar RF",
-  "webDir": "public",
+  "webDir": "dist",
   "bundledWebRuntime": false,
   "server": {
     "androidScheme": "https"
@@ -15,7 +15,7 @@
     }
   },
   "android": {
-    "allowMixedContent": true,
+    "allowMixedContent": false,
     "permissions": [
       "android.permission.BLUETOOTH",
       "android.permission.BLUETOOTH_ADMIN",

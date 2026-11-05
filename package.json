@@ -1,11 +1,13 @@
 {
   "name": "examradar-rf",
   "version": "1.0.0",
-  "description": "Mobile Anti-Cheating RF, BLE & Wi-Fi Proximity Radar for Classroom Exam Surveillance",
+  "description": "RF proximity classroom simulator with heuristic classification and verifiable observation reports",
   "type": "module",
   "main": "./src/index.js",
   "scripts": {
-    "test": "node --test test/**/*.test.js",
+    "test": "node --test",
+    "build": "node ./scripts/build.mjs",
+    "verify": "node ./src/verify-report.js",
     "start": "node ./src/server.js"
   },
   "keywords": [
@@ -27,6 +29,6 @@
     "url": "https://github.com/nrcb28/examradar-rf.git"
   },
   "engines": {
-    "node": ">=18.0.0"
+    "node": ">=22.0.0"
   }
 }

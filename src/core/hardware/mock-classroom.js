@@ -50,6 +50,9 @@ export class MockClassroom {
   }
 
   setTeacherPosition(x, y) {
+    if (!Number.isFinite(x) || !Number.isFinite(y)) {
+      throw new TypeError('Teacher coordinates must be finite numbers');
+    }
     this.teacherPosition.x = Math.max(0, Math.min(this.classroomWidth, x));
     this.teacherPosition.y = Math.max(0, Math.min(this.classroomLength, y));
   }
@@ -72,7 +75,7 @@ export class MockClassroom {
         id: tx.id,
         name: tx.name,
         type: tx.type,
-        services: tx.services || [],
+        services: [...(tx.services || [])],
         rssi: rawRssi,
         simulatedTrueDistance: Math.round(distanceMeters * 100) / 100,
         desk: tx.desk,
