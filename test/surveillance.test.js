@@ -12,7 +12,7 @@ test('surveillance: registers baseline devices during calibration and suppresses
 
   // Ingest teacher laptop
   session.ingestDevice({ id: 'DEV_TEACHER', name: 'MacBook Pro', rssi: -45 });
-  assert.equal(session.baselineDeviceIds.has('DEV_TEACHER'), true);
+  assert.equal(session.baselineDeviceIds.has('BLE:DEV_TEACHER'), true);
 
   // Start exam
   session.startExam();

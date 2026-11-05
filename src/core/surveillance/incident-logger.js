@@ -1,56 +1,74 @@
 import { getProximityZone } from '../physics/path-loss.js';
 
-// Only JSON data is accepted: do not silently discard undefined, non-finite
-// numbers, accessors, sparse arrays or custom prototypes when hashing evidence.
-function canonicalJson(value, ancestors = new Set()) {
-  if (value === null || typeof value === 'string' || typeof value === 'boolean') {
-    return JSON.stringify(value);
-  }
-  if (typeof value === 'number' && Number.isFinite(value)) {
-    return JSON.stringify(value);
-  }
-  if (typeof value !== 'object' || ancestors.has(value)) {
-    throw new TypeError('Report must contain finite, acyclic JSON data only');
-  }
-  if (Object.getOwnPropertySymbols(value).length > 0) {
-    throw new TypeError('Symbol properties are not valid report data');
-  }
+export const REPORT_LIMITS = Object.freeze({
+  maxBytes: 5 * 1024 * 1024, maxDepth: 32, maxNodes: 100000,
+  maxStringLength: 4096, maxArrayLength: 5000,
+});
+const encoder = new TextEncoder();
+const REDACTED_REASON = 'Clasificación heurística; identificadores anunciados omitidos';
 
-  const descriptors = Object.getOwnPropertyDescriptors(value);
-  const isArray = Array.isArray(value);
-  if (Object.getPrototypeOf(value) !== (isArray ? Array.prototype : Object.prototype)
-      && !(Object.getPrototypeOf(value) === null && !isArray)) {
-    throw new TypeError('Report objects must have plain JSON prototypes');
+// Validate before allocating a digest buffer. Enforce a budget while walking,
+// including repeated references, instead of discovering oversized JSON at the end.
+function canonicalJson(value) {
+  const ancestors = new Set();
+  let nodes = 0;
+  let bytes = 0;
+  function chunk(text) {
+    bytes += encoder.encode(text).byteLength;
+    if (bytes > REPORT_LIMITS.maxBytes) throw new RangeError('Report exceeds the 5 MiB JSON limit');
+    return text;
   }
-
-  const keys = Object.keys(descriptors).filter((key) => !(isArray && key === 'length'));
-  for (const key of keys) {
-    if (!descriptors[key].enumerable || !Object.hasOwn(descriptors[key], 'value')) {
-      throw new TypeError('Report properties must be enumerable data properties');
+  function visit(item, depth) {
+    if (++nodes > REPORT_LIMITS.maxNodes || depth > REPORT_LIMITS.maxDepth) {
+      throw new RangeError('Report exceeds the JSON structure limits');
     }
-  }
-  if (isArray && (keys.length !== value.length
-      || keys.some((key, index) => key !== String(index)))) {
-    throw new TypeError('Report arrays must be dense and have no extra properties');
-  }
-
-  ancestors.add(value);
-  try {
-    if (isArray) {
-      return `[${keys.map((key) => canonicalJson(descriptors[key].value, ancestors)).join(',')}]`;
+    if (typeof item === 'string') {
+      if (item.length > REPORT_LIMITS.maxStringLength) throw new RangeError('Report string is too long');
+      return chunk(JSON.stringify(item));
     }
-    return `{${keys.sort().map((key) => `${JSON.stringify(key)}:${canonicalJson(descriptors[key].value, ancestors)}`).join(',')}}`;
-  } finally {
-    ancestors.delete(value);
+    if (item === null || typeof item === 'boolean' || (typeof item === 'number' && Number.isFinite(item))) {
+      return chunk(JSON.stringify(item));
+    }
+    if (typeof item !== 'object' || ancestors.has(item)) throw new TypeError('Report must contain finite, acyclic JSON data only');
+    const isArray = Array.isArray(item);
+    const prototype = Object.getPrototypeOf(item);
+    if (prototype !== (isArray ? Array.prototype : Object.prototype) && !(prototype === null && !isArray)) {
+      throw new TypeError('Report objects must have plain JSON prototypes');
+    }
+    const allKeys = Reflect.ownKeys(item);
+    if (allKeys.some((key) => typeof key !== 'string')) throw new TypeError('Symbol properties are not valid report data');
+    const keys = allKeys.filter((key) => !(isArray && key === 'length'));
+    if (keys.length > (isArray ? REPORT_LIMITS.maxArrayLength : 256) || nodes + keys.length > REPORT_LIMITS.maxNodes) {
+      throw new RangeError('Report has too many properties');
+    }
+    const descriptors = Object.getOwnPropertyDescriptors(item);
+    for (const key of keys) {
+      if (key.length > REPORT_LIMITS.maxStringLength || !descriptors[key].enumerable || !Object.hasOwn(descriptors[key], 'value')) {
+        throw new TypeError('Report properties must be bounded enumerable data properties');
+      }
+    }
+    if (isArray && (keys.length !== item.length || keys.some((key, index) => key !== String(index)))) {
+      throw new TypeError('Report arrays must be dense and have no extra properties');
+    }
+    ancestors.add(item);
+    try {
+      const entries = [];
+      chunk(isArray ? '[' : '{');
+      for (const key of isArray ? keys : keys.sort()) {
+        if (entries.length) chunk(',');
+        const prefix = isArray ? '' : chunk(`${JSON.stringify(key)}:`);
+        entries.push(prefix + visit(descriptors[key].value, depth + 1));
+      }
+      chunk(isArray ? ']' : '}');
+      return isArray ? `[${entries.join(',')}]` : `{${entries.join(',')}}`;
+    } finally { ancestors.delete(item); }
   }
+  return visit(value, 0);
 }
 
 async function sha256(value) {
-  if (!globalThis.crypto?.subtle) {
-    throw new Error('Web Crypto is unavailable; use Node.js 22+ or a secure browser context (HTTPS/localhost)');
-  }
-  const bytes = new TextEncoder().encode(canonicalJson(value));
-  const digest = await globalThis.crypto.subtle.digest('SHA-256', bytes);
+  if (!globalThis.crypto?.subtle) throw new Error('Web Crypto is unavailable; use Node.js 22+ or HTTPS/localhost');
+  const digest = await globalThis.crypto.subtle.digest('SHA-256', encoder.encode(canonicalJson(value)));
   return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, '0')).join('');
 }
 
@@ -59,76 +77,158 @@ function unsignedReport(report) {
   return { ...report, evidenceIntegrity: integrityMetadata };
 }
 
+const isObject = (value) => value !== null && typeof value === 'object' && !Array.isArray(value);
+function keysMatch(value, required, optional = []) {
+  return isObject(value) && required.every((key) => Object.hasOwn(value, key))
+    && Object.keys(value).every((key) => required.includes(key) || optional.includes(key));
+}
+const text = (value, max = 256) => typeof value === 'string' && value.length > 0 && value.length <= max;
+const count = (value, max) => Number.isSafeInteger(value) && value >= 0 && value <= max;
+const bool = (value) => typeof value === 'boolean';
+const rssi = (value) => Number.isFinite(value) && value >= -127 && value < 0;
+const date = (value) => typeof value === 'string' && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/.test(value)
+  && Number.isFinite(Date.parse(value)) && new Date(value).toISOString() === value;
+const deviceType = (value) => value === 'BLE' || value === 'WIFI';
+const level = (value) => ['LOW', 'MEDIUM', 'HIGH', 'CRITICAL'].includes(value);
+const score = (value) => Number.isFinite(value) && value >= 0 && value <= 100;
+const pseudonym = (value) => typeof value === 'string'
+  && /^DEV-[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/.test(value);
+function validCategory(category) {
+  return keysMatch(category, ['id', 'label', 'level', 'score']) && text(category.id, 64)
+    && /^[A-Z_]+$/.test(category.id) && text(category.label) && level(category.level) && score(category.score);
+}
+
+function validReport(report) {
+  const legacy = report?.reportVersion === 1;
+  if ((!legacy && report?.reportVersion !== 2)
+      || !keysMatch(report, ['reportVersion', 'reportId', 'timestamp', 'sessionMetadata', 'threats', 'incidentEvents', 'evidenceIntegrity', ...(!legacy ? ['privacy'] : [])])
+      || !text(report.reportId, 200) || !/^AUDIT-[A-Z0-9_-]+$/.test(report.reportId) || !date(report.timestamp)
+      || !Array.isArray(report.threats) || report.threats.length > 1000
+      || !Array.isArray(report.incidentEvents) || report.incidentEvents.length > 5000) return false;
+  let redacted = false;
+  if (!legacy) {
+    if (!keysMatch(report.privacy, ['redactIdentifiers', 'scheme']) || !bool(report.privacy.redactIdentifiers)
+        || report.privacy.scheme !== (report.privacy.redactIdentifiers ? 'PER_REPORT_RANDOM' : 'NONE')) return false;
+    redacted = report.privacy.redactIdentifiers;
+  }
+  const meta = report.sessionMetadata;
+  if (!keysMatch(meta, ['examName', 'classroom', 'instructor', 'startTime', 'totalDevicesScanned', 'totalBaselineDevices', 'suspiciousThreatsDetected', 'incidentLimitReached', 'deviceLimitReached', 'baselineLimitReached'])
+      || !text(meta.examName) || !text(meta.classroom) || !text(meta.instructor)
+      || !(meta.startTime === null || date(meta.startTime))
+      || !count(meta.totalDevicesScanned, 1000) || !count(meta.totalBaselineDevices, 1000)
+      || meta.suspiciousThreatsDetected !== report.threats.length || meta.totalDevicesScanned < report.threats.length
+      || !bool(meta.incidentLimitReached) || !bool(meta.deviceLimitReached) || !bool(meta.baselineLimitReached)) return false;
+  const identifiers = new Set();
+  for (const threat of report.threats) {
+    if (!keysMatch(threat, ['deviceId', 'deviceName', 'category', 'threatLevel', 'threatScore', 'confidence', 'reason', 'peakRssi', 'estimatedDistance', 'proximityZone', 'firstSeen', 'lastSeen', 'isNewDuringExam', ...(!legacy ? ['deviceType', 'baselineProfileChanged'] : [])])
+        || !text(threat.deviceId) || !text(threat.deviceName) || !text(threat.category)
+        || !level(threat.threatLevel) || !score(threat.threatScore)
+        || !Number.isFinite(threat.confidence) || threat.confidence < 0 || threat.confidence > 1
+        || !text(threat.reason, 1024) || !rssi(threat.peakRssi) || !text(threat.proximityZone)
+        || !date(threat.firstSeen) || !date(threat.lastSeen) || !bool(threat.isNewDuringExam)
+        || typeof threat.estimatedDistance !== 'string' || threat.estimatedDistance.length > 64
+        || !/^\d+(?:\.\d+)?(?:e[+-]?\d+)? m$/i.test(threat.estimatedDistance)
+        || !Number.isFinite(Number(threat.estimatedDistance.slice(0, -2))) || Number(threat.estimatedDistance.slice(0, -2)) <= 0
+        || (!legacy && (!deviceType(threat.deviceType) || !bool(threat.baselineProfileChanged)))) return false;
+    const key = `${threat.deviceType ?? 'BLE'}:${threat.deviceId}`;
+    if (identifiers.has(key)) return false;
+    identifiers.add(key);
+    if (redacted && (!pseudonym(threat.deviceId) || threat.deviceName !== threat.deviceId || threat.reason !== REDACTED_REASON)) return false;
+  }
+  const eventIds = new Set();
+  for (const event of report.incidentEvents) {
+    if (!keysMatch(event, ['id', 'timestamp', 'type', 'deviceId', 'deviceName', 'category', 'rssi', ...(!legacy ? ['deviceType', 'deviceKey'] : [])], ['reason', 'distanceMeters'])
+        || !text(event.id, 200) || !date(event.timestamp) || !text(event.deviceId) || !text(event.deviceName)
+        || !['ANOMALY_NEW_SUSPECT_DEVICE', 'ANOMALY_DEVICE_RECLASSIFIED', 'ANOMALY_BASELINE_PROFILE_CHANGED', 'PROXIMITY_IMMEDIATE_ALERT'].includes(event.type)
+        || !validCategory(event.category) || !rssi(event.rssi)
+        || (event.reason !== undefined && !text(event.reason, 1024))
+        || (event.distanceMeters !== undefined && (!Number.isFinite(event.distanceMeters) || event.distanceMeters <= 0))
+        || (event.type === 'PROXIMITY_IMMEDIATE_ALERT' ? event.distanceMeters === undefined : event.reason === undefined)
+        || (!legacy && (!deviceType(event.deviceType) || !text(event.deviceKey, 261)))) return false;
+    if (eventIds.has(event.id)) return false;
+    eventIds.add(event.id);
+    if (!identifiers.has(`${event.deviceType ?? 'BLE'}:${event.deviceId}`)) return false;
+    if (!legacy && event.deviceKey !== (redacted ? event.deviceId : `${event.deviceType}:${event.deviceId}`)) return false;
+    if (redacted && (!pseudonym(event.deviceId) || event.deviceName !== event.deviceId
+        || (event.reason !== undefined && event.reason !== REDACTED_REASON))) return false;
+  }
+  const integrity = report.evidenceIntegrity;
+  return keysMatch(integrity, ['algorithm', 'status', 'hash']) && integrity.algorithm === 'SHA-256'
+    && integrity.status === 'UNSIGNED_CHECKSUM' && typeof integrity.hash === 'string' && /^[a-f0-9]{64}$/.test(integrity.hash);
+}
+
 /**
- * Takes a detached JSON snapshot and computes an unkeyed checksum of every
- * exported field except the checksum itself. This is not a digital signature:
- * anyone able to modify a report can also recompute its checksum.
+ * Takes a detached snapshot with an unkeyed checksum. Redaction replaces device
+ * identities/names/reasons with random per-report aliases; exam metadata remains.
+ * A checksum is not a signature: an editor can also recompute it.
  */
-export async function generateIncidentAuditReport(session) {
-  if (!globalThis.crypto?.subtle || !globalThis.crypto?.randomUUID) {
-    throw new Error('Web Crypto is unavailable; use Node.js 22+ or a secure browser context (HTTPS/localhost)');
+export async function generateIncidentAuditReport(session, options = {}) {
+  if (!globalThis.crypto?.subtle || !globalThis.crypto?.randomUUID) throw new Error('Web Crypto is unavailable; use Node.js 22+ or HTTPS/localhost');
+  if (!isObject(options) || ![Object.prototype, null].includes(Object.getPrototypeOf(options))
+      || Object.getOwnPropertySymbols(options).length > 0) throw new TypeError('Report options must be a plain object');
+  const optionData = Object.getOwnPropertyDescriptors(options);
+  if (Object.keys(optionData).some((key) => key !== 'redactIdentifiers')
+      || (optionData.redactIdentifiers && (!Object.hasOwn(optionData.redactIdentifiers, 'value') || !bool(optionData.redactIdentifiers.value)))) {
+    throw new TypeError('The only report option is redactIdentifiers (boolean)');
+  }
+  const redactIdentifiers = optionData.redactIdentifiers?.value ?? false;
+  const identities = new Map();
+  function alias(id, type) {
+    const key = `${type}:${id}`;
+    if (!identities.has(key)) identities.set(key, `DEV-${globalThis.crypto.randomUUID()}`);
+    return identities.get(key);
   }
   const timestamp = new Date().toISOString();
   const reportId = `AUDIT-${session.id.toUpperCase()}-${globalThis.crypto.randomUUID().toUpperCase()}`;
-  const threats = session.getRecordedThreats().map((t) => ({
-    deviceId: t.id,
-    deviceName: t.name,
-    category: t.classification.category.label,
-    threatLevel: t.classification.category.level,
-    threatScore: t.classification.category.score,
-    confidence: t.classification.confidence,
-    reason: t.classification.reason,
-    peakRssi: t.peakRssi,
-    estimatedDistance: `${t.minimumDistanceMeters} m`,
-    proximityZone: getProximityZone(t.minimumDistanceMeters).label,
-    firstSeen: t.firstSeen,
-    lastSeen: t.lastSeen,
-    isNewDuringExam: t.isNewInExam,
-  }));
-
-  // Detach all nested values before awaiting so scans cannot mutate this report.
+  const threats = session.getRecordedThreats().map((t) => {
+    const type = t.type ?? 'BLE';
+    const id = redactIdentifiers ? alias(t.id, type) : t.id;
+    return {
+      deviceId: id, deviceType: type, deviceName: redactIdentifiers ? id : t.name,
+      category: t.classification.category.label, threatLevel: t.classification.category.level,
+      threatScore: t.classification.category.score, confidence: t.classification.confidence,
+      reason: redactIdentifiers ? REDACTED_REASON : t.classification.reason,
+      peakRssi: t.peakRssi, estimatedDistance: `${t.minimumDistanceMeters} m`,
+      proximityZone: getProximityZone(t.minimumDistanceMeters).label,
+      firstSeen: t.firstSeen, lastSeen: t.lastSeen, isNewDuringExam: t.isNewInExam,
+      baselineProfileChanged: t.baselineProfileChanged ?? false,
+    };
+  });
+  const incidentEvents = session.incidents.map((event, index) => {
+    const type = event.deviceType ?? 'BLE';
+    const id = redactIdentifiers ? alias(event.deviceId, type) : event.deviceId;
+    return {
+      ...event, id: redactIdentifiers ? `EVENT-${index + 1}` : event.id,
+      deviceId: id, deviceType: type, deviceKey: redactIdentifiers ? id : `${type}:${event.deviceId}`,
+      deviceName: redactIdentifiers ? id : event.deviceName,
+      ...(redactIdentifiers && event.reason !== undefined ? { reason: REDACTED_REASON } : {}),
+    };
+  });
+  // Serialize before awaiting so subsequent scans cannot mutate this snapshot.
   const report = JSON.parse(canonicalJson({
-    reportVersion: 1,
-    reportId,
-    timestamp,
+    reportVersion: 2, reportId, timestamp,
+    privacy: { redactIdentifiers, scheme: redactIdentifiers ? 'PER_REPORT_RANDOM' : 'NONE' },
     sessionMetadata: {
-      examName: session.examName,
-      classroom: session.classroom,
-      instructor: session.instructor,
-      startTime: session.startTime,
-      totalDevicesScanned: session.trackedDevices.size,
-      totalBaselineDevices: session.baselineDeviceIds.size,
-      suspiciousThreatsDetected: threats.length,
-      incidentLimitReached: session.incidentLimitReached ?? false,
-      deviceLimitReached: session.deviceLimitReached ?? false,
-      baselineLimitReached: session.baselineLimitReached ?? false,
+      examName: session.examName, classroom: session.classroom, instructor: session.instructor, startTime: session.startTime,
+      totalDevicesScanned: session.totalDevicesScanned ?? session.trackedDevices.size,
+      totalBaselineDevices: session.totalBaselineDevices ?? session.baselineDeviceIds.size,
+      suspiciousThreatsDetected: threats.length, incidentLimitReached: session.incidentLimitReached ?? false,
+      deviceLimitReached: session.deviceLimitReached ?? false, baselineLimitReached: session.baselineLimitReached ?? false,
     },
-    threats,
-    incidentEvents: session.incidents,
-    evidenceIntegrity: {
-      algorithm: 'SHA-256',
-      status: 'UNSIGNED_CHECKSUM',
-    },
+    threats, incidentEvents,
+    evidenceIntegrity: { algorithm: 'SHA-256', status: 'UNSIGNED_CHECKSUM', hash: '0'.repeat(64) },
   }));
-  report.evidenceIntegrity.hash = await sha256(report);
+  if (!validReport(report)) throw new TypeError('Session cannot be represented by the incident report schema');
+  report.evidenceIntegrity.hash = await sha256(unsignedReport(report));
   return report;
 }
 
-/** Checks data consistency only; does not authenticate the report or its author. */
+/** Validates the bounded schema and checksum; does not authenticate its author. */
 export async function verifyIncidentAuditReport(auditReport) {
   try {
     const report = JSON.parse(canonicalJson(auditReport));
-    const integrity = report.evidenceIntegrity;
-    if (report.reportVersion !== 1 || !integrity || Array.isArray(integrity)
-        || Object.keys(integrity).sort().join(',') !== 'algorithm,hash,status'
-        || integrity.algorithm !== 'SHA-256' || integrity.status !== 'UNSIGNED_CHECKSUM'
-        || typeof integrity.hash !== 'string' || !/^[a-f0-9]{64}$/.test(integrity.hash)) {
-      return false;
-    }
-    return await sha256(unsignedReport(report)) === integrity.hash;
-  } catch {
-    return false;
-  }
+    return validReport(report) && await sha256(unsignedReport(report)) === report.evidenceIntegrity.hash;
+  } catch { return false; }
 }
 
 function escapeHtml(value) {
@@ -139,6 +239,7 @@ function escapeHtml(value) {
 
 /** Generates a printable, script-free summary with untrusted values escaped. */
 export function generateHtmlIncidentCertificate(auditReport) {
+  auditReport = JSON.parse(canonicalJson(auditReport));
   const meta = auditReport.sessionMetadata;
   const text = escapeHtml;
   return `<!DOCTYPE html>
@@ -182,6 +283,7 @@ export function generateHtmlIncidentCertificate(auditReport) {
   </div>
 
   <p>Los nombres y servicios anunciados pueden ser falsificados. Las distancias son estimaciones por RSSI; estas observaciones no demuestran fraude ni identifican a una persona.</p>
+  ${auditReport.privacy?.redactIdentifiers ? '<p><strong>Exportación con seudónimos:</strong> los identificadores y nombres anunciados se sustituyeron por alias nuevos para este informe. Los metadatos del examen, aula y profesor se conservan; revíselos antes de compartir.</p>' : '<p><strong>Datos identificativos:</strong> este informe incluye identificadores y nombres anunciados de dispositivos. Revise su contenido antes de compartir.</p>'}
   ${meta.incidentLimitReached ? '<p><strong>Registro limitado:</strong> se alcanzó el máximo de incidencias; algunas alertas posteriores no se guardaron.</p>' : ''}
   ${meta.deviceLimitReached || meta.baselineLimitReached ? '<p><strong>Muestreo incompleto:</strong> se alcanzó el límite de dispositivos o de línea base; algunas transmisiones no se registraron.</p>' : ''}
   <h2>Dispositivos registrados durante la sesión</h2>

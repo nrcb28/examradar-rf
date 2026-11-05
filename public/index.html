@@ -3,155 +3,78 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>ExamRadar-RF • Detector de Radiofrecuencia para Exámenes</title>
-  <style>
-    :root {
-      --bg: #06090e;
-      --card: #0f1622;
-      --border: #1e293b;
-      --primary: #00ff66;
-      --crit: #ff3344;
-      --warn: #ff9900;
-      --text: #f1f5f9;
-      --muted: #94a3b8;
-    }
-    * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
-    body {
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-      background: var(--bg);
-      color: var(--text);
-      overflow-x: hidden;
-      padding-bottom: 3rem;
-    }
-    .header {
-      background: #090e17;
-      border-bottom: 1px solid var(--border);
-      padding: 1rem 1.2rem;
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      position: sticky;
-      top: 0;
-      z-index: 50;
-    }
-    .brand { font-size: 1.2rem; font-weight: bold; color: var(--primary); display: flex; align-items: center; gap: 0.5rem; }
-    .status-badge { background: #13231b; color: var(--primary); border: 1px solid var(--primary); padding: 0.2rem 0.6rem; border-radius: 12px; font-size: 0.75rem; font-weight: bold; }
-    .container { max-width: 600px; margin: 0 auto; padding: 1rem; }
-    
-    .radar-wrapper {
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      margin: 1rem 0;
-    }
-    canvas {
-      width: 320px;
-      height: 320px;
-      background: transparent;
-      border-radius: 50%;
-    }
-
-    .geiger-hud {
-      background: var(--card);
-      border: 1px solid var(--border);
-      border-radius: 12px;
-      padding: 1.2rem;
-      margin-bottom: 1rem;
-      text-align: center;
-    }
-    .geiger-val { font-size: 2.8rem; font-weight: 800; font-family: monospace; color: var(--primary); }
-    .geiger-sub { font-size: 0.85rem; color: var(--muted); text-transform: uppercase; }
-
-    .walkpad {
-      background: #090e17;
-      border: 1px solid var(--border);
-      border-radius: 8px;
-      padding: 1rem;
-      margin-bottom: 1rem;
-    }
-    .walkpad-title { font-size: 0.85rem; color: var(--muted); margin-bottom: 0.6rem; text-transform: uppercase; letter-spacing: 0.05em; }
-    .walk-controls { display: grid; grid-template-columns: repeat(3, 1fr); gap: 0.5rem; max-width: 200px; margin: 0 auto; }
-    .btn-walk { background: #1e293b; color: #fff; border: 1px solid var(--border); padding: 0.6rem; border-radius: 6px; font-weight: bold; cursor: pointer; }
-    .btn-walk:active { background: var(--primary); color: #000; }
-
-    .threat-card {
-      background: var(--card);
-      border-left: 4px solid var(--crit);
-      border-radius: 6px;
-      padding: 0.8rem 1rem;
-      margin-bottom: 0.8rem;
-    }
-    .threat-title { display: flex; justify-content: space-between; font-weight: bold; font-size: 1rem; }
-    .threat-detail { font-size: 0.8rem; color: var(--muted); margin-top: 0.3rem; }
-    .threat-dist { font-size: 1.1rem; font-weight: bold; color: var(--crit); }
-
-    .btn { background: var(--primary); color: #000; font-weight: bold; border: none; padding: 0.8rem 1.2rem; border-radius: 8px; width: 100%; cursor: pointer; margin-top: 0.5rem; }
-    .btn-danger { background: var(--crit); color: #fff; }
-    .btn-outline { background: transparent; border: 1px solid var(--border); color: var(--text); }
-  </style>
+  <meta name="referrer" content="no-referrer">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'; base-uri 'none'; object-src 'none'; form-action 'none'">
+  <title>ExamRadar-RF · Simulador de proximidad</title>
+  <link rel="stylesheet" href="/styles.css">
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
 </head>
 <body>
-  <div class="header">
+  <a class="skip-link" href="#main">Ir al simulador</a>
+  <header class="header">
     <div class="brand">📡 ExamRadar-RF</div>
-    <div id="status-badge" class="status-badge">SIMULACIÓN</div>
-  </div>
-
-  <div class="container">
-    <p role="note" style="color:var(--muted); margin-bottom:1rem;">Demostración con dispositivos ficticios. No realiza un escaneo real. Las firmas y distancias son orientativas y no acreditan una infracción. Los ángulos del radar son ilustrativos.</p>
-    <!-- Geiger HUD -->
-    <div class="geiger-hud">
-      <div class="geiger-sub">NIVEL DE SEÑAL / PROXIMIDAD MÁS CERCANA</div>
-      <div id="geiger-rssi" class="geiger-val">-65 dBm</div>
-      <div id="geiger-distance" style="font-size: 1.1rem; color: #fff; margin-top: 0.2rem;">Distancia: ~1.4 m (Pupitre Fila 2)</div>
-      <div style="margin-top: 0.8rem; display: flex; justify-content: center; gap: 0.5rem;">
-        <button id="btn-audio" class="btn btn-outline" style="width: auto; padding: 0.4rem 0.8rem; font-size: 0.8rem;" >🔊 Clics Geiger: OFF</button>
-        <button id="btn-haptic" class="btn btn-outline" style="width: auto; padding: 0.4rem 0.8rem; font-size: 0.8rem;" >📳 Vibración: ON</button>
+    <div id="status-badge" class="status-badge" role="status">SIMULACIÓN</div>
+  </header>
+  <main id="main" class="container">
+    <h1>Radar de proximidad simulado</h1>
+    <p class="intro">Dispositivos ficticios: esta demostración no escanea tu entorno. Las firmas y distancias son orientativas; no acreditan una infracción. Los ángulos del radar son ilustrativos.</p>
+    <noscript><p class="notice">Activa JavaScript para ejecutar la simulación. No se ha realizado ningún escaneo.</p></noscript>
+    <section aria-labelledby="session-title" class="panel">
+      <h2 id="session-title">Sesión de demostración</h2>
+      <p id="session-summary" class="muted">Preparando simulación…</p>
+      <div class="button-row">
+        <button id="btn-pause" class="btn">Pausar</button>
+        <button id="btn-complete" class="btn btn-outline">Finalizar</button>
+        <button id="btn-reset" class="btn btn-outline">Nueva simulación</button>
+        <button id="btn-calibrate" class="btn btn-outline">Calibrar aula · 5 s</button>
       </div>
-    </div>
-
-    <!-- Polar Radar -->
+      <p class="hint">Nueva simulación y Calibrar borran las observaciones y capturas actuales. La calibración registra los dispositivos presentes como línea base; no autentica su identidad.</p>
+      <p id="app-status" role="status" class="notice" hidden></p>
+    </section>
+    <section class="geiger-hud" aria-labelledby="signal-title">
+      <h2 id="signal-title">Señal más cercana</h2>
+      <div id="geiger-rssi" class="geiger-val">— dBm</div>
+      <div id="geiger-distance">Sin observaciones</div>
+      <div class="button-row centered">
+        <button id="btn-audio" class="btn btn-outline" aria-pressed="false">🔊 Clics Geiger: OFF</button>
+        <button id="btn-haptic" class="btn btn-outline" aria-pressed="false">📳 Vibración: OFF</button>
+      </div>
+    </section>
     <div class="radar-wrapper">
-      <canvas id="radar" width="320" height="320"></canvas>
+      <canvas id="radar" width="320" height="320" role="img" aria-label="Distancias estimadas de los dispositivos simulados; la lista inferior ofrece los mismos datos."></canvas>
     </div>
-
-    <!-- Walking Walkpad (Classroom Simulation Controller) -->
-    <div class="walkpad">
-      <div class="walkpad-title">Control de Pasillo del Profesor (Caminar por el Aula)</div>
-      <div style="text-align: center; font-size: 0.85rem; color: var(--muted); margin-bottom: 0.5rem;">
-        Posición: X=<span id="pos-x">2.0</span>m, Y=<span id="pos-y">3.0</span>m
-      </div>
+    <section class="walkpad" aria-labelledby="walk-title">
+      <h2 id="walk-title">Caminar por el aula</h2>
+      <p class="position">Posición: X=<span id="pos-x">2.0</span> m, Y=<span id="pos-y">3.0</span> m</p>
       <div class="walk-controls">
-        <div></div>
-        <button class="btn-walk" data-dx="0" data-dy="1">▲ N</button>
-        <div></div>
-        <button class="btn-walk" data-dx="-1" data-dy="0">◄ O</button>
-        <button class="btn-walk" data-dx="0" data-dy="0">●</button>
-        <button class="btn-walk" data-dx="1" data-dy="0">E ►</button>
-        <div></div>
-        <button class="btn-walk" data-dx="0" data-dy="-1">▼ S</button>
-        <div></div>
+        <span></span><button class="btn-walk" data-dx="0" data-dy="1" aria-label="Mover al norte">▲ N</button><span></span>
+        <button class="btn-walk" data-dx="-1" data-dy="0" aria-label="Mover al oeste">◄ O</button>
+        <button class="btn-walk" data-home="true" aria-label="Volver a la posición inicial">●</button>
+        <button class="btn-walk" data-dx="1" data-dy="0" aria-label="Mover al este">E ►</button>
+        <span></span><button class="btn-walk" data-dx="0" data-dy="-1" aria-label="Mover al sur">▼ S</button><span></span>
       </div>
-    </div>
-
-    <!-- Active Threats Feed -->
-    <h3 style="font-size: 1.1rem; margin-bottom: 0.8rem;">Dispositivos Transmisores Sospechosos</h3>
-    <div id="threats-list" aria-live="polite">
-      <div class="threat-card">
-        <div class="threat-title">
-          <span>VIP-Pro Nano-Ear</span>
-          <span class="threat-dist">~0.5 m</span>
-        </div>
-        <div class="threat-detail">Firma: Microauricular espía de inducción magnética • Pupitre Fila 2, Asiento 3</div>
-      </div>
-    </div>
-
-    <!-- Audit Certificate Export -->
-    <button id="btn-export-html" class="btn btn-outline">📄 Descargar informe HTML</button>
-    <button id="btn-export-json" class="btn btn-outline">Descargar JSON verificable</button>
-    <button id="btn-refresh-report" class="btn btn-outline">Actualizar captura del informe</button>
-    <p id="export-status" role="status" style="color:var(--muted); margin-top:0.5rem;"></p>
-  </div>
-
+    </section>
+    <section aria-labelledby="devices-title">
+      <h2 id="devices-title">Dispositivos señalados por las heurísticas</h2>
+      <div id="threats-list"><p class="muted">Esperando las primeras observaciones simuladas.</p></div>
+    </section>
+    <section class="panel" aria-labelledby="export-title">
+      <h2 id="export-title">Exportar una captura</h2>
+      <label class="check-label"><input id="redact-identifiers" type="checkbox" checked> Ocultar identificadores y nombres de dispositivos</label>
+      <p class="hint">Utiliza seudónimos distintos en cada captura. Los datos de examen, aula y profesor se conservan. HTML y JSON comparten la misma captura hasta que la actualices.</p>
+      <button id="btn-export-html" class="btn btn-outline">📄 Descargar informe HTML</button>
+      <button id="btn-export-json" class="btn btn-outline">Descargar JSON verificable</button>
+      <button id="btn-refresh-report" class="btn btn-outline">Actualizar captura del informe</button>
+      <p id="export-status" role="status" class="hint"></p>
+    </section>
+    <section class="panel" aria-labelledby="verify-title">
+      <h2 id="verify-title">Comprobar un informe JSON</h2>
+      <label for="verify-file">Selecciona un informe exportado</label>
+      <input id="verify-file" type="file" accept=".json,application/json">
+      <p class="hint">La comprobación se realiza en este navegador; el archivo no se envía a ningún servidor. Una huella válida comprueba consistencia, no autoría ni autenticidad.</p>
+      <p id="verify-status" role="status"></p>
+    </section>
+  </main>
   <script type="module" src="/app.js"></script>
 </body>
 </html>

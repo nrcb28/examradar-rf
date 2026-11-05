@@ -9,16 +9,13 @@ export function renderThreats(container, threats) {
   }
   for (const threat of threats) {
     const card = document.createElement('div');
-    card.className = 'threat-card';
-    const color = threat.classification.category.score >= 90 ? 'var(--crit)' : 'var(--warn)';
-    card.style.borderLeftColor = color;
+    card.className = threat.classification.category.score >= 90 ? 'threat-card critical' : 'threat-card';
     const title = document.createElement('div');
     title.className = 'threat-title';
     const name = document.createElement('span');
     name.textContent = threat.name;
     const distance = document.createElement('span');
     distance.className = 'threat-dist';
-    distance.style.color = color;
     distance.textContent = `${threat.distanceMeters.toFixed(2)} m`;
     title.append(name, distance);
     const detail = document.createElement('div');

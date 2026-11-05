@@ -3,29 +3,82 @@
  */
 export class RadarRenderer {
   constructor(canvas) {
+    if (!canvas || typeof canvas.getContext !== 'function') throw new TypeError('A canvas element is required');
     this.canvas = canvas;
     this.ctx = canvas.getContext('2d');
+    if (!this.ctx) throw new TypeError('Canvas 2D rendering is not available');
     this.sweepAngle = 0;
     this.animationId = null;
-    this.devices = [];
+    this.devices = Object.freeze([]);
+    this._running = false;
+    this._generation = 0;
+    this._lastTimestamp = null;
   }
 
   setDevices(devices) {
-    this.devices = devices;
+    if (!Array.isArray(devices)) throw new TypeError('Radar devices must be an array');
+    if (devices.length > 1000) throw new RangeError('Radar supports at most 1000 devices');
+    const snapshots = [];
+    for (const device of devices) {
+      try {
+        const { name, distanceMeters } = device;
+        const score = device.classification?.category?.score;
+        if (typeof name !== 'string' || !Number.isFinite(distanceMeters) || distanceMeters < 0 ||
+            !Number.isFinite(score) || score < 0 || score > 100) continue;
+        snapshots.push(Object.freeze({
+          name: name.slice(0, 256), distanceMeters,
+          classification: Object.freeze({ category: Object.freeze({ score }) }),
+        }));
+      } catch (_) {} // A malformed device must not disable every radar blip.
+    }
+    this.devices = Object.freeze(snapshots);
+    return snapshots.length;
   }
 
   start() {
-    const render = () => {
+    if (this._running) return true;
+    if (typeof globalThis.requestAnimationFrame !== 'function' ||
+        globalThis.matchMedia?.('(prefers-reduced-motion: reduce)').matches) {
       this.draw();
-      this.sweepAngle = (this.sweepAngle + 0.04) % (Math.PI * 2);
-      this.animationId = requestAnimationFrame(render);
+      return false;
+    }
+    this._running = true;
+    const generation = ++this._generation;
+    this._lastTimestamp = null;
+    const render = timestamp => {
+      if (!this._running || generation !== this._generation) return;
+      this.animationId = null;
+      if (Number.isFinite(timestamp)) {
+        if (this._lastTimestamp !== null) {
+          const elapsed = Math.max(0, Math.min(100, timestamp - this._lastTimestamp));
+          this.sweepAngle = (this.sweepAngle + elapsed * 0.0024) % (Math.PI * 2);
+        }
+        this._lastTimestamp = timestamp;
+      }
+      try {
+        this.draw();
+      } catch (error) {
+        this.stop();
+        throw error;
+      }
+      if (this._running && generation === this._generation) this.animationId = globalThis.requestAnimationFrame(render);
     };
-    render();
+    try {
+      this.draw();
+      this.animationId = globalThis.requestAnimationFrame(render);
+      return true;
+    } catch (error) {
+      this.stop();
+      throw error;
+    }
   }
 
   stop() {
-    if (this.animationId) {
-      cancelAnimationFrame(this.animationId);
+    this._running = false;
+    ++this._generation;
+    this._lastTimestamp = null;
+    if (this.animationId !== null) {
+      globalThis.cancelAnimationFrame?.(this.animationId);
       this.animationId = null;
     }
   }
@@ -33,6 +86,8 @@ export class RadarRenderer {
   draw() {
     const { width, height } = this.canvas;
     const ctx = this.ctx;
+    if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 30 || height <= 30 ||
+        ctx.isContextLost?.()) return false;
     const centerX = width / 2;
     const centerY = height / 2;
     const maxRadius = Math.min(centerX, centerY) - 15;
@@ -65,14 +120,21 @@ export class RadarRenderer {
     ctx.stroke();
 
     // Rotating Radar Sweep
-    const grad = ctx.createConicGradient(this.sweepAngle, centerX, centerY);
-    grad.addColorStop(0, 'rgba(0, 255, 100, 0.25)');
-    grad.addColorStop(0.15, 'rgba(0, 255, 100, 0.0)');
-    grad.addColorStop(1, 'rgba(0, 255, 100, 0.0)');
-
-    ctx.fillStyle = grad;
+    let grad;
+    try {
+      grad = ctx.createConicGradient?.(this.sweepAngle, centerX, centerY);
+      grad?.addColorStop(0, 'rgba(0, 255, 100, 0.25)');
+      grad?.addColorStop(0.15, 'rgba(0, 255, 100, 0.0)');
+      grad?.addColorStop(1, 'rgba(0, 255, 100, 0.0)');
+    } catch (_) { grad = null; }
+    ctx.fillStyle = grad || 'rgba(0, 255, 100, 0.15)';
     ctx.beginPath();
-    ctx.arc(centerX, centerY, maxRadius, 0, Math.PI * 2);
+    if (grad) ctx.arc(centerX, centerY, maxRadius, 0, Math.PI * 2);
+    else {
+      ctx.moveTo(centerX, centerY);
+      ctx.arc(centerX, centerY, maxRadius, this.sweepAngle, this.sweepAngle + 0.4);
+      ctx.closePath();
+    }
     ctx.fill();
 
     // Outer border
@@ -108,5 +170,6 @@ export class RadarRenderer {
       ctx.font = '11px sans-serif';
       ctx.fillText(dev.name, blipX + 9, blipY + 3);
     }
+    return true;
   }
 }
